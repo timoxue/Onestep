@@ -71,11 +71,13 @@ const DeploymentTerminal = ({ sessionId, onProgress, onError, onLog, logs, activ
 
     // Connect to Socket.io
     setIsConnecting(true);
-    const socket = io('/', {
+    const socketUrl = process.env.NODE_ENV === 'production' ? '/' : 'http://localhost:3001';
+    const socket = io(socketUrl, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
+      timeout: 10000,
     });
 
     socket.emit('join-deployment', { sessionId });
