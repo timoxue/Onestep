@@ -1,0 +1,163 @@
+.app-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 0 24px;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.logo-icon {
+  font-size: 28px;
+  color: #667eea;
+}
+
+.header-title {
+  margin: 0;
+  color: #1a1a1a;
+}
+
+.app-content {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-items: center;
+}
+
+.deployment-card {
+  width: 100%;
+  max-width: 1000px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.config-card {
+  width: 100%;
+  max-width: 600px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  margin-bottom: 24px;
+}
+
+.config-card .ant-card-head-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.config-info {
+  margin-top: 16px;
+  padding: 16px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.config-info .info-list {
+  margin: 8px 0 0 20px;
+  line-height: 1.8;
+}
+
+.config-info .info-list li {
+  margin: 8px 0;
+  color: #666;
+}
+
+.config-info .info-list strong {
+  color: #333;
+  font-weight: 600;
+}
+
+.deployment-header {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #f0f7ff;
+  border-radius: 6px;
+  border-left: 4px solid #1890ff;
+}
+
+.deployment-header .ant-typography {
+  color: #0050b3;
+  font-weight: 500;
+}
+
+.action-buttons {
+  width: 100%;
+  justify-content: center;
+  padding: 16px 0;
+  border-top: 1px solid #f0f0f0;
+  margin-top: 16px;
+}
+
+.success-guide {
+  width: 100%;
+  max-width: 1000px;
+  border-radius: 12px;
+  border: 2px solid #52c41a;
+  background: #f6ffed;
+}
+
+.guide-steps {
+  margin-top: 16px;
+  padding: 16px;
+  background: white;
+  border-radius: 8px;
+}
+
+.guide-steps ol {
+  margin-left: 24px;
+  margin-top: 8px;
+}
+
+.guide-steps li {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+.guide-steps code {
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  color: #667eea;
+}
+
+.app-footer {
+  text-align: center;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 16px 24px;
+}
+
+.app-footer .ant-typography {
+  color: #666;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app-content {
+    padding: 16px;
+  }
+
+  .deployment-card,
+  .success-guide {
+    max-width: 100%;
+  }
+
+  .header-title {
+    font-size: 18px;
+  }
+}

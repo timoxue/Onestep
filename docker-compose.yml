@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # Development environment
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./client/build:/app/client/build
+      - ./configs:/var/lib/openclaw/configs
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DOCKER_SOCK=/var/run/docker.sock
+      - CONFIG_BASE_PATH=/var/lib/openclaw/configs
+    restart: unless-stopped
+    networks:
+      - openclaw-network
+
+networks:
+  openclaw-network:
+    driver: bridge

@@ -1,0 +1,116 @@
+.progress-container {
+  padding: 24px;
+  background: #fafafa;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.progress-status {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-icon {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.progress-bar-wrapper {
+  margin: 16px 0;
+  padding: 0 8px;
+}
+
+.progress-message {
+  text-align: center;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.progress-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 24px;
+  gap: 0;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.step-indicator {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #d9d9d9;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.step.completed .step-indicator {
+  background: #52c41a;
+  transform: scale(1.1);
+}
+
+.step-text {
+  font-size: 12px;
+  color: #999;
+  text-align: center;
+  max-width: 80px;
+}
+
+.step.completed .step-text {
+  color: #52c41a;
+  font-weight: 500;
+}
+
+.step-divider {
+  width: 40px;
+  height: 2px;
+  background: #e8e8e8;
+  margin: 0 4px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .progress-container {
+    padding: 16px;
+  }
+
+  .progress-steps {
+    gap: 0;
+  }
+
+  .step-indicator {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .step-text {
+    font-size: 10px;
+    max-width: 60px;
+  }
+
+  .step-divider {
+    width: 24px;
+  }
+}
