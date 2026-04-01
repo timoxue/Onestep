@@ -42,3 +42,5 @@ logs/
 # Config files (keep examples)
 config/*.json
 !config/*.example.json
+configs/default/
+configs/*/
