@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const jsQR = require('jsqr');
 
 /**
  * OpenClaw 部署管理器 - 简化架构
@@ -19,50 +20,52 @@ class OpenClawDeployer {
     this.docker = this.createDockerConnection();
     this.deployments = new Map();
 
-    // 进度模式
+    // 进度模式（按实际日志顺序，先匹配具体的）
     this.progressPatterns = [
       {
-        pattern: /\[1\/3\]\s*Preparing\s*environment/i,
+        pattern: /\[1\/3\]/,
         progress: 15,
-        message: 'Preparing environment...',
+        message: '环境准备完成',
       },
       {
-        pattern: /Installing\s*OpenClaw/i,
-        progress: 40,
-        message: 'Installing OpenClaw...',
+        pattern: /\[2\/3\]/,
+        progress: 35,
+        message: '开始安装 OpenClaw Lark...',
       },
       {
-        pattern: /OpenClaw\s*installed\s*successfully/i,
-        progress: 60,
-        message: 'OpenClaw installed successfully',
+        pattern: /Installing\s*plugin|Installing\s*OpenClaw|🦞\s*OpenClaw/i,
+        progress: 55,
+        message: '正在安装插件...',
       },
       {
-        pattern: /Scan\s*with\s*Feishu/i,
+        pattern: /Extracting/i,
+        progress: 70,
+        message: '正在解压安装包...',
+      },
+      {
+        pattern: /Scan\s*with\s*Feishu|请.*扫.*码|飞书.*扫码|scan.*feishu/i,
         progress: 80,
-        message: 'Please scan with Feishu',
+        message: '请使用飞书扫描二维码',
       },
       {
-        pattern: /Credentials\s*verified/i,
+        pattern: /Credentials\s*verified|验证成功|认证成功/i,
         progress: 95,
-        message: 'Credentials verified',
+        message: '凭证验证成功',
       },
       {
-        pattern: /OpenClaw\s*is\s*all\s*set/i,
+        pattern: /all\s*set|配置完成|安装完成/i,
         progress: 100,
-        message: 'OpenClaw is all set!',
+        message: 'OpenClaw 配置完成！',
       },
     ];
 
-    // 错误模式
+    // 错误模式（只匹配明确的致命错误，避免误判）
     this.errorPatterns = [
-      /error:/i,
-      /failed/i,
-      /timeout/i,
-      /unable to/i,
-      /cannot/i,
       /permission denied/i,
       /connection refused/i,
       /EPERM/i,
+      /fatal error/i,
+      /docker.*error/i,
     ];
   }
 
@@ -119,13 +122,15 @@ class OpenClawDeployer {
 
   /**
    * 启动部署
-   * @param {string} tenantId - 租户/用户ID
+   * @param {string} tenantId - 租户/用户名
    * @param {string} botName - 机器人名称
+   * @param {number} userId - 用户数据库ID
    */
-  async startDeployment(tenantId, botName) {
+  async startDeployment(tenantId, botName, userId) {
     const sessionId = uuidv4();
+    const shortId = sessionId.substring(0, 8);
     const workspacePath = this.getWorkspacePath(tenantId);
-    const containerName = `openclaw-${sessionId}`;
+    const containerName = `openclaw-${tenantId}-${shortId}`;
 
     console.log(`\n🚀 启动部署`);
     console.log(`   会话 ID: ${sessionId}`);
@@ -148,22 +153,21 @@ class OpenClawDeployer {
       message: '初始化...',
       startTime: Date.now(),
       output: [],
+      qrLines: [],
+      qrCapturing: false,
+      qrCodeUrl: null,
     };
 
     this.deployments.set(sessionId, deployment);
 
-    try {
-      await this.launchOpenClawContainer(deployment);
-      deployment.status = 'running';
-      console.log(`✓ 部署 ${sessionId} 正在运行\n`);
-    } catch (error) {
+    // 在后台启动容器，立即返回 sessionId 给 HTTP 响应
+    this.launchOpenClawContainer(deployment).catch((error) => {
       deployment.status = 'error';
       deployment.message = error.message;
       deployment.error = error;
       this.broadcastProgress(sessionId);
       console.error(`✗ 部署失败: ${error.message}\n`);
-      throw error;
-    }
+    });
 
     return sessionId;
   }
@@ -280,59 +284,67 @@ exit 0
 
     deployment.container = container;
 
-    // 连接到容器输出流
-    await this.attachToContainer(container, sessionId);
-
     // 启动容器
     await container.start();
+    deployment.status = 'running';
+    this.broadcastProgress(sessionId);
     console.log(`✓ 容器已启动: ${containerName}\n`);
 
-    // 等待容器完成
+    // 跟踪容器输出流（异步，不阻塞）
+    this.followContainerLogs(container, sessionId);
+
+    // 等待容器完成（异步，不阻塞调用方）
     await this.waitForContainer(container, sessionId);
   }
 
   /**
-   * 连接到容器输出流
+   * 跟踪容器日志流
    */
-  async attachToContainer(container, sessionId) {
-    const stream = await container.attach({
-      stream: true,
-      stdout: true,
-      stderr: true,
-      logs: true,
-    });
+  followContainerLogs(container, sessionId) {
+    container.logs(
+      { follow: true, stdout: true, stderr: true, timestamps: false },
+      (err, stream) => {
+        if (err) {
+          console.error(`日志流错误 [${sessionId}]:`, err);
+          this.handleError(sessionId, err);
+          return;
+        }
 
-    const deployment = this.deployments.get(sessionId);
-    if (!deployment) return;
+        const deployment = this.deployments.get(sessionId);
+        if (!deployment) return;
 
-    const outputStream = deployment.output;
+        stream.on('data', (chunk) => {
+          // 去掉 Docker 多路复用流的 8 字节头
+          const raw = chunk.slice(chunk[0] <= 2 && chunk.length > 8 ? 8 : 0);
+          const output = raw.toString('utf-8');
+          deployment.output.push(output);
+          console.log(`[log] ${output.trim().substring(0, 80)}`);
 
-    stream.on('data', (chunk) => {
-      const output = chunk.toString('utf-8');
-      outputStream.push(output);
+          this.io.emit('log', { output, sessionId, timestamp: Date.now() });
+          this.analyzeOutput(output, sessionId);
 
-      // 广播到前端
-      this.io.to(sessionId).emit('log', {
-        output,
-        timestamp: Date.now(),
-      });
+          // 逐行处理，用于 QR 码捕获
+          const lines = output.split(/\r?\n/);
+          for (const line of lines) {
+            this.processQrLine(line, sessionId);
+          }
+        });
 
-      // 分析输出中的进度
-      this.analyzeOutput(output, sessionId);
-    });
+        stream.on('error', (error) => {
+          console.error(`流错误 [${sessionId}]:`, error);
+          this.handleError(sessionId, error);
+        });
 
-    stream.on('error', (error) => {
-      console.error(`流错误 [${sessionId}]:`, error);
-      this.handleError(sessionId, error);
-    });
-
-    stream.on('end', () => {
-      console.log(`✓ 流结束 [${sessionId}]`);
-      if (deployment.status !== 'error') {
-        deployment.status = 'completed';
-        this.broadcastProgress(sessionId);
+        stream.on('end', () => {
+          console.log(`✓ 流结束 [${sessionId}]`);
+          const dep = this.deployments.get(sessionId);
+          if (dep && dep.status !== 'error') {
+            dep.status = 'completed';
+            this.broadcastProgress(sessionId);
+          }
+        });
       }
-    });
+    );
   }
 
   /**
@@ -385,11 +397,134 @@ exit 0
         if (progress > deployment.progress) {
           deployment.progress = progress;
           deployment.message = message;
+
+          // 扫码阶段：尝试从日志中提取飞书扫码 URL
+          if (progress === 80) {
+            const urlMatch = output.match(/https?:\/\/[^\s"'<>]+/);
+            if (urlMatch) {
+              deployment.qrCodeUrl = urlMatch[0];
+            }
+          }
+
           this.broadcastProgress(sessionId);
           console.log(`✓ 进度更新: ${progress}% - ${message}`);
         }
         break;
       }
+    }
+
+  }
+
+  /**
+   * 逐行处理容器输出，捕获 ASCII 二维码块
+   */
+  processQrLine(line, sessionId) {
+    const deployment = this.deployments.get(sessionId);
+    if (!deployment || deployment.qrCodeUrl) return;
+
+    // 检测扫码触发行
+    if (/Scan\s*with\s*Feishu|请.*扫.*码|飞书.*扫码/i.test(line)) {
+      deployment.qrCapturing = true;
+      deployment.qrLines = [];
+      console.log('[QR] 开始捕获 ASCII 二维码...');
+      return;
+    }
+
+    if (!deployment.qrCapturing) return;
+
+    // 判断是否为 QR 图形行（含半块字符或全块字符）
+    const isQrRow = /[\u2580-\u259F\u2588\u2592\u2593 ]/.test(line) && line.trim().length > 0;
+
+    if (isQrRow) {
+      deployment.qrLines.push(line);
+    } else if (deployment.qrLines.length > 5) {
+      // QR 图形结束，尝试解码
+      deployment.qrCapturing = false;
+      console.log(`[QR] 捕获完成，共 ${deployment.qrLines.length} 行，开始解码...`);
+      this.decodeAsciiQR(deployment, sessionId);
+    } else if (line.trim().length > 0) {
+      // 非图形行且积累不足，重置
+      deployment.qrLines = [];
+      deployment.qrCapturing = false;
+    }
+  }
+
+  /**
+   * 将 ASCII 半块字符二维码解码为 URL
+   * 每个字符 = 1列 × 2行像素
+   * █ = 上下都暗  ▀ = 上暗下亮  ▄ = 上亮下暗  空格 = 上下都亮
+   */
+  decodeAsciiQR(deployment, sessionId) {
+    try {
+      const lines = deployment.qrLines;
+      if (lines.length < 5) return;
+
+      // 去掉 ANSI 转义序列
+      const clean = lines.map(l => l.replace(/\x1B\[[0-9;]*m/g, ''));
+
+      const charWidth = Math.max(...clean.map(l => [...l].length));
+      const pixelWidth = charWidth;
+      const pixelHeight = clean.length * 2;
+
+      const data = new Uint8ClampedArray(pixelWidth * pixelHeight * 4);
+
+      const setPixel = (x, y, dark) => {
+        if (x < 0 || x >= pixelWidth || y < 0 || y >= pixelHeight) return;
+        const idx = (y * pixelWidth + x) * 4;
+        const v = dark ? 0 : 255;
+        data[idx] = v;
+        data[idx + 1] = v;
+        data[idx + 2] = v;
+        data[idx + 3] = 255;
+      };
+
+      clean.forEach((row, rowIdx) => {
+        const chars = [...row];
+        for (let col = 0; col < charWidth; col++) {
+          const ch = chars[col] || ' ';
+          const topY = rowIdx * 2;
+          const botY = rowIdx * 2 + 1;
+
+          if (ch === '█' || ch === '\u2588') {
+            setPixel(col, topY, true);
+            setPixel(col, botY, true);
+          } else if (ch === '▀' || ch === '\u2580') {
+            setPixel(col, topY, true);
+            setPixel(col, botY, false);
+          } else if (ch === '▄' || ch === '\u2584') {
+            setPixel(col, topY, false);
+            setPixel(col, botY, true);
+          } else {
+            setPixel(col, topY, false);
+            setPixel(col, botY, false);
+          }
+        }
+      });
+
+      const result = jsQR(data, pixelWidth, pixelHeight);
+      if (result && result.data) {
+        deployment.qrCodeUrl = result.data;
+        console.log(`[QR] 解码成功: ${result.data}`);
+        this.broadcastProgress(sessionId);
+      } else {
+        console.log('[QR] 解码失败，尝试反色...');
+        // 尝试反色（某些终端配色下黑白相反）
+        for (let i = 0; i < data.length; i += 4) {
+          data[i] = 255 - data[i];
+          data[i + 1] = 255 - data[i + 1];
+          data[i + 2] = 255 - data[i + 2];
+        }
+        const result2 = jsQR(data, pixelWidth, pixelHeight);
+        if (result2 && result2.data) {
+          deployment.qrCodeUrl = result2.data;
+          console.log(`[QR] 反色解码成功: ${result2.data}`);
+          this.broadcastProgress(sessionId);
+        } else {
+          console.log('[QR] 解码失败，未能提取 URL');
+        }
+      }
+    } catch (err) {
+      console.error('[QR] 解码异常:', err.message);
     }
   }
 
@@ -405,8 +540,9 @@ exit 0
     deployment.error = error;
     this.broadcastProgress(sessionId);
 
-    this.io.to(sessionId).emit('error', {
+    this.io.emit('error', {
       error: error.message,
+      sessionId,
       timestamp: Date.now(),
     });
   }
@@ -418,10 +554,12 @@ exit 0
     const deployment = this.deployments.get(sessionId);
     if (!deployment) return;
 
-    this.io.to(sessionId).emit('progress', {
+    this.io.emit('progress', {
       progress: deployment.progress,
       message: deployment.message,
       status: deployment.status,
+      qrCodeUrl: deployment.qrCodeUrl || null,
+      sessionId,
       timestamp: Date.now(),
     });
   }

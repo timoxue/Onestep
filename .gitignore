@@ -39,6 +39,9 @@ logs/
 *.tmp
 .cache/
 
+# Database
+data/
+
 # Config files (keep examples)
 config/*.json
 !config/*.example.json

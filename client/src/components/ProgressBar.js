@@ -56,7 +56,7 @@ const ProgressBar = ({ progress, status, currentMessage }) => {
         <Progress
           percent={progress}
           strokeColor={getStatusColor()}
-          strokeWidth={8}
+          size={['100%', 8]}
           status={status === 'error' ? 'exception' : status === 'completed' ? 'success' : 'active'}
           showInfo={false}
         />

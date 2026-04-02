@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Card, Spin } from 'antd';
+import React, { useEffect, useRef } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
@@ -7,16 +6,15 @@ import { io } from 'socket.io-client';
 import 'xterm/css/xterm.css';
 import './DeploymentTerminal.css';
 
-const DeploymentTerminal = ({ sessionId, onProgress, onError, onLog, logs, active }) => {
+const DeploymentTerminal = ({ sessionId, onProgress, onError, onLog, active }) => {
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
-  const fitAddonRef = useRef(null);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const socketRef = useRef(null);
+  const sessionIdRef = useRef(null);
 
+  // 初始化 terminal + socket，只在组件挂载时运行一次
   useEffect(() => {
-    if (!sessionId) return;
-
-    // Initialize xterm.js
+    // 初始化 xterm
     const terminal = new Terminal({
       cursorBlink: false,
       disableStdin: true,
@@ -26,20 +24,14 @@ const DeploymentTerminal = ({ sessionId, onProgress, onError, onLog, logs, activ
         background: '#1e1e1e',
         foreground: '#d4d4d4',
         cursor: '#ffffff',
-        black: '#000000',
         red: '#cd3131',
         green: '#0dbc79',
         yellow: '#e5e510',
         blue: '#2472c8',
-        magenta: '#bc3fbc',
         cyan: '#11a8cd',
         white: '#e5e5e5',
-        brightBlack: '#666666',
-        brightRed: '#f14c4c',
         brightGreen: '#23d18b',
         brightYellow: '#f5f543',
-        brightBlue: '#3b8eea',
-        brightMagenta: '#d670d6',
         brightCyan: '#29b8db',
         brightWhite: '#ffffff',
       },
@@ -47,93 +39,83 @@ const DeploymentTerminal = ({ sessionId, onProgress, onError, onLog, logs, activ
       lineHeight: 1.4,
     });
 
-    // Initialize addons
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
-
     xtermRef.current = terminal;
-    fitAddonRef.current = fitAddon;
 
-    // Mount terminal
     if (terminalRef.current) {
       terminal.open(terminalRef.current);
       fitAddon.fit();
     }
 
-    // Welcome message
     terminal.writeln('\x1b[36m╔══════════════════════════════════════════╗\x1b[0m');
-    terminal.writeln('\x1b[36m║     OpenClaw Deployment Terminal      ║\x1b[0m');
+    terminal.writeln('\x1b[36m║     OpenClaw Deployment Terminal         ║\x1b[0m');
     terminal.writeln('\x1b[36m╚══════════════════════════════════════════╝\x1b[0m');
     terminal.writeln('');
-    terminal.writeln('\x1b[33mInitializing deployment...\x1b[0m');
-    terminal.writeln('');
 
-    // Connect to Socket.io
-    setIsConnecting(true);
-    const socketUrl = process.env.NODE_ENV === 'production' ? '/' : 'http://localhost:3001';
+    const handleResize = () => fitAddon.fit();
+    window.addEventListener('resize', handleResize);
+
+    // 初始化 socket
+    const socketUrl = process.env.NODE_ENV === 'production'
+      ? window.location.origin
+      : 'http://localhost:3001';
+
     const socket = io(socketUrl, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling'],
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: 10,
-      timeout: 10000,
     });
 
-    socket.emit('join-deployment', { sessionId });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('Socket connected:', socket.id);
+      // socket 连上时如果已有 sessionId，补发 join
+      if (sessionIdRef.current) {
+        socket.emit('join-deployment', { sessionId: sessionIdRef.current });
+      }
+    });
+
+    socket.on('log', (data) => {
+      if (data.sessionId !== sessionIdRef.current) return;
+      if (xtermRef.current) xtermRef.current.write(data.output);
+      if (onLog) onLog(data);
+    });
 
     socket.on('progress', (data) => {
+      if (data.sessionId !== sessionIdRef.current) return;
       if (onProgress) onProgress(data);
     });
 
     socket.on('error', (data) => {
+      if (data.sessionId !== sessionIdRef.current) return;
       if (onError) onError(data);
-      terminal.write('\x1b[31m✗ Error:\x1b[0m ');
-      terminal.writeln(data.error);
-    });
-
-    socket.on('log', (data) => {
-      terminal.write(data.output);
-      if (onLog) onLog(data);
-    });
-
-    socket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-      if (onError) onError({ error: 'Connection failed' });
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Socket disconnected');
-    });
-
-    // Fit terminal on window resize
-    const handleResize = () => {
-      if (fitAddon) {
-        fitAddon.fit();
+      if (xtermRef.current) {
+        xtermRef.current.write('\x1b[31m✗ Error:\x1b[0m ');
+        xtermRef.current.writeln(data.error);
       }
-    };
+    });
 
-    window.addEventListener('resize', handleResize);
-    setIsConnecting(false);
+    socket.on('disconnect', () => console.log('Socket disconnected'));
+    socket.on('connect_error', (err) => console.error('Socket error:', err));
 
-    // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
       socket.disconnect();
       terminal.dispose();
-      socket.emit('leave-deployment', { sessionId });
     };
-  }, [sessionId, onProgress, onError, onLog]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Display logs when socket is not connected but logs are available
+  // sessionId 变化时加入 room
   useEffect(() => {
-    if (xtermRef.current && logs.length > 0 && !socket.connected) {
-      xtermRef.current.clear();
-      logs.forEach((log) => {
-        xtermRef.current.write(log);
-      });
+    sessionIdRef.current = sessionId;
+    if (sessionId && socketRef.current) {
+      socketRef.current.emit('join-deployment', { sessionId });
     }
-  }, [logs, xtermRef]);
+  }, [sessionId]);
 
   return (
     <div className="deployment-terminal-container">
@@ -146,13 +128,7 @@ const DeploymentTerminal = ({ sessionId, onProgress, onError, onLog, logs, activ
           </span>
         )}
       </div>
-      <Spin spinning={isConnecting} tip="Connecting to deployment stream...">
-        <div
-          ref={terminalRef}
-          className="terminal-wrapper"
-          style={{ opacity: isConnecting ? 0.5 : 1 }}
-        />
-      </Spin>
+      <div ref={terminalRef} className="terminal-wrapper" />
     </div>
   );
 };

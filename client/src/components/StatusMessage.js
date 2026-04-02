@@ -3,7 +3,7 @@ import { Alert, QRCode } from 'antd';
 import { ScanOutlined, CheckCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import './StatusMessage.css';
 
-const StatusMessage = ({ status, showQrPrompt, currentMessage }) => {
+const StatusMessage = ({ status, showQrPrompt, currentMessage, qrCodeUrl }) => {
   const showSuccessMessage = status === 'completed' || currentMessage === 'OpenClaw is all set';
 
   return (
@@ -66,11 +66,16 @@ const StatusMessage = ({ status, showQrPrompt, currentMessage }) => {
 
       {showQrPrompt && (
         <div className="qr-code-container">
-          <QRCode
-            value="https://openclaw.ai/scan"
-            size={180}
-            style={{ margin: '16px auto', display: 'block' }}
-          />
+          {qrCodeUrl ? (
+            <div className="qr-code-wrapper">
+              <QRCode value={qrCodeUrl} size={240} />
+            </div>
+          ) : (
+            <div className="qr-code-waiting">
+              <p>等待二维码生成中...</p>
+              <p className="qr-url-hint">二维码将从安装日志中自动提取</p>
+            </div>
+          )}
           <div className="qr-code-instructions">
             <p>1. 打开飞书 App</p>
             <p>2. 点击右上角 "+" 号</p>
