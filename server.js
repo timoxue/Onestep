@@ -4,9 +4,21 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const OpenClawDeployer = require('./openclaw-deployer');
 const path = require('path');
+const fs = require('fs');
 const { getDb, createUser, validateUser, findUserById, createDeployment, updateDeploymentStatus, getUserDeployments, deleteDeploymentBySessionId } = require('./db');
 const { generateToken, authenticateToken } = require('./middleware/auth');
 require('dotenv').config();
+
+// 确保 workspace 根目录存在
+const WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || './workspaces');
+fs.mkdirSync(WORKSPACE_ROOT, { recursive: true });
+console.log(`📁 Workspace 根目录: ${WORKSPACE_ROOT}`);
+
+function ensureUserWorkspace(username) {
+  const dir = path.join(WORKSPACE_ROOT, username);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -41,6 +53,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     const user = await createUser(username, password, email);
+    ensureUserWorkspace(user.username);
     const token = generateToken(user);
     res.json({ success: true, token, user: { id: user.id, username: user.username, email: user.email } });
   } catch (error) {
@@ -57,6 +70,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const user = await validateUser(username, password);
+    ensureUserWorkspace(user.username);
     const token = generateToken(user);
     res.json({ success: true, token, user: { id: user.id, username: user.username, email: user.email } });
   } catch (error) {

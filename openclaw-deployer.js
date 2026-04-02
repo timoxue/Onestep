@@ -269,7 +269,7 @@ exit 0
       HostConfig: {
         AutoRemove: false,
         Binds: [
-          `${workspacePath}:/workspace:rw`,
+          `${this.toDockerBindPath(workspacePath)}:/workspace:rw`,
         ],
       },
       Cmd: ['/bin/sh', '-c', installCommand],
@@ -667,21 +667,24 @@ exit 0
    * 获取工作空间路径（使用项目目录）
    */
   getWorkspacePath(tenantId = 'default') {
-    // 使用项目目录，避免权限问题
-    const projectDir = process.cwd();
+    const root = process.env.WORKSPACE_ROOT || './workspaces';
+    const resolved = path.resolve(root, tenantId);
+    console.log(`✓ 工作空间路径: ${resolved}`);
+    return resolved;
+  }
 
-    // 工作空间基础目录
-    const baseWorkspaceDir = path.join(projectDir, 'configs');
-
-    // 租户特定目录
-    const tenantWorkspace = path.join(baseWorkspaceDir, tenantId);
-
-    // 确保路径正确
-    const resolvedPath = path.resolve(tenantWorkspace);
-
-    console.log(`✓ 工作空间路径: ${resolvedPath}`);
-
-    return resolvedPath;
+  /**
+   * 将宿主机绝对路径转换为 Docker Bind 格式
+   * Windows: D:\foo\bar  →  /d/foo/bar
+   * Linux/macOS: /opt/foo  →  /opt/foo  (unchanged)
+   */
+  toDockerBindPath(absPath) {
+    if (os.platform() === 'win32') {
+      return absPath
+        .replace(/\\/g, '/')
+        .replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`);
+    }
+    return absPath;
   }
 
   /**
